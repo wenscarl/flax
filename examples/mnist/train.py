@@ -45,7 +45,7 @@ class CNN(nn.Module):
     x = nn.relu(x)
     x = nn.avg_pool(x, window_shape=(2, 2), strides=(2, 2))
     x = x.reshape((x.shape[0], -1))  # flatten
-    x = nn.Dense(features=256)(x)
+    x = nn.Dense(features=256, dot_general_cls=nn.Fp8DenseGeneralOp)(x)
     x = nn.relu(x)
     x = nn.Dense(features=10)(x)
     return x
@@ -56,7 +56,7 @@ def apply_model(state, images, labels):
   """Computes gradients, loss and accuracy for a single batch."""
 
   def loss_fn(params):
-    logits = state.apply_fn({'params': params}, images)
+    logits = state.apply_fn(params, images)
     one_hot = jax.nn.one_hot(labels, 10)
     loss = jnp.mean(optax.softmax_cross_entropy(logits=logits, labels=one_hot))
     return loss, logits
@@ -110,9 +110,9 @@ def get_datasets():
 def create_train_state(rng, config):
   """Creates initial `TrainState`."""
   cnn = CNN()
-  params = cnn.init(rng, jnp.ones([1, 28, 28, 1]))['params']
+  params = cnn.init(rng, jnp.ones([1, 28, 28, 1]))
   tx = optax.sgd(config.learning_rate, config.momentum)
-  return train_state.TrainState.create(apply_fn=cnn.apply, params=params, tx=tx)
+  return train_state.Fp8TrainState.create(apply_fn=cnn.apply, params=params, tx=tx)
 
 
 def train_and_evaluate(
