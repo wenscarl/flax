@@ -191,7 +191,7 @@ class Fp8DotGeneralOp(module.Module):
       OVERWRITE_WITH_GRADIENT, 'output_grad_scale', *scale_args
     )
 
-  def __call__(self, *args, **kwargs):
+  def __call__(self, *args, use_amax_history=True, **kwargs):
     assert len(args) == 3
     x = args[0]
     k = args[1]
@@ -201,19 +201,23 @@ class Fp8DotGeneralOp(module.Module):
     # namely, the computation data type.
     comp_dtype = k.dtype
     x = jnp.asarray(x, comp_dtype)
-
-    x_qdq = in_qdq(
-      comp_dtype, x, self.input_scale.value, self.input_amax_history.value
-    )
-    k_qdq = in_qdq(
-      comp_dtype, k, self.kernel_scale.value, self.kernel_amax_history.value
-    )
-    y_qdq = dot_general_with_precision(x_qdq, k_qdq, dimension_numbers)  # type: ignore
-    y = out_qdq(
-      comp_dtype,
-      y_qdq,
-      self.output_grad_scale.value,
-      self.output_grad_amax_history.value,
-    )
+    if use_amax_history:
+      x_qdq = in_qdq(
+        comp_dtype, x, self.input_scale.value, self.input_amax_history.value
+      )
+      k_qdq = in_qdq(
+        comp_dtype, k, self.kernel_scale.value, self.kernel_amax_history.value
+      )
+      y_qdq = dot_general_with_precision(x_qdq, k_qdq, dimension_numbers)  # type: ignore
+      y = out_qdq(
+        comp_dtype,
+        y_qdq,
+        self.output_grad_scale.value,
+        self.output_grad_amax_history.value,
+      )
+    else:
+      x_qdq = quantize_dequantize(x, jnp.float8_e4m3fn, self.input_scale.value, comp_dtype)
+      k_qdq = quantize_dequantize(k, jnp.float8_e4m3fn, self.kernel_scale.value, comp_dtype)
+      y = dot_general_with_precision(x_qdq, k_qdq, dimension_numbers)  # type: ignore
 
     return y  # type: ignore

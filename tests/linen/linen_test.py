@@ -1040,7 +1040,7 @@ class Fp8Test(absltest.TestCase):
       random.uniform(random_key, (16, 64)), jnp.float8_e5m2
     )
 
-    def run(fp8_injection, expected_shapes):
+    def run_training(fp8_injection, expected_shapes):
       p = nn.DenseGeneral(features=64, name='dense')
       if fp8_injection:
         p.dot_general_cls = nn.Fp8DotGeneralOp
@@ -1074,14 +1074,36 @@ class Fp8Test(absltest.TestCase):
       },
     }
 
-    output1a, output1b = run(False, expected_shapes_original)
-    output2a, output2b = run(True, expected_shapes_new)
+    def run_inference(fp8_injection):
+      p = nn.DenseGeneral(features=64, name='dense')
+      apply_args = {}
+      if fp8_injection:
+        p.dot_general_cls = nn.Fp8DotGeneralOp
+        apply_args = {'training': False}
+      y, initial_vars = p.init_with_output(init_key, x)
+      var_shapes = jax.tree_util.tree_map(jnp.shape, initial_vars)
+
+      @jax.jit
+      def eval_fn(variables, x):
+        y = p.apply(variables, x, *apply_args)
+        loss = y * dy
+        return jnp.mean(loss)
+
+      outputs = eval_fn(initial_vars, x)
+      return outputs
+
+    output1a, output1b = run_training(False, expected_shapes_original)
+    output2a, output2b = run_training(True, expected_shapes_new)
     dw1, dw2 = output1b[0]['params']['kernel'], output2b[0]['params']['kernel']
     dx1, dx2 = output1b[1], output2b[1]
 
     np.testing.assert_allclose(output1a, output2a, atol=1e-02)
     np.testing.assert_allclose(dw1, dw2, atol=1e-04)
     np.testing.assert_allclose(dx1, dx2, atol=1e-04)
+
+    output3a = run_inference(False)
+    output4a = run_inference(True)
+    np.testing.assert_allclose(output3a, output4a, atol=1e-02)
 
   def test_fp8_train_state(self):
     key, init_key, random_key = random.split(random.PRNGKey(seed=123), 3)

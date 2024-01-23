@@ -25,7 +25,7 @@ from typing import (
   Tuple,
   Union,
 )
-
+import pdb
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -36,6 +36,8 @@ from flax.core import meta
 from flax.linen import initializers
 from flax.linen.dtypes import promote_dtype
 from flax.linen.module import Module, compact
+from flax.linen import fp8_ops
+
 
 PRNGKey = Any
 Shape = Tuple[int, ...]
@@ -117,7 +119,7 @@ class DenseGeneral(Module):
   dot_general_cls: Any = None
 
   @compact
-  def __call__(self, inputs: Array) -> Array:
+  def __call__(self, inputs: Array, training: bool=True) -> Array:
     """Applies a linear transformation to the inputs along multiple dimensions.
 
     Args:
@@ -196,12 +198,24 @@ class DenseGeneral(Module):
       dot_general = self.dot_general
     else:
       dot_general = lax.dot_general
-    out = dot_general(
-      inputs,
-      kernel,
-      ((axis, contract_ind), (batch_dims, batch_ind)),
-      precision=self.precision,
-    )
+    # pdb.set_trace()
+    if isinstance(dot_general, fp8_ops.Fp8DotGeneralOp):
+      print("xxxxxxx"*100)
+      out = dot_general(
+        inputs,
+        kernel,
+        ((axis, contract_ind), (batch_dims, batch_ind)),
+        use_amax_history = training,
+        precision=self.precision,
+      )
+    else:
+      print("yyyyy"*100)
+      out = dot_general(
+        inputs,
+        kernel,
+        ((axis, contract_ind), (batch_dims, batch_ind)),
+        precision=self.precision,
+      )
     # dot_general output has shape [batch_dims/group_dims] + [feature_dims]
     if self.use_bias:
       # expand bias shape to broadcast bias over batch dims.
